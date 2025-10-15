@@ -1,21 +1,24 @@
 const videoElement = document.getElementById('webcam');
 const canvasElement = document.getElementById('overlay');
 const canvasCtx = canvasElement.getContext('2d');
-canvasCtx.imageSmoothingEnabled = false; // preserve HQ details
 
 const subcategoryButtons = document.getElementById('subcategory-buttons');
 const jewelryOptions = document.getElementById('jewelry-options');
 
 let earringImg = null;
 let necklaceImg = null;
+
 let currentType = '';
 let smoothedFaceLandmarks = null;
 let camera;
+
+// Store smoothed jewelry positions
 let smoothedFacePoints = {};
 
 // ================== GOOGLE DRIVE CONFIG ==================
 const API_KEY = "AIzaSyCOkk8w6DyEp5lwdm5DjECSo-c2Xitw9vI";
 
+// Map jewelry type → Google Drive Folder ID
 const driveFolders = {
   gold_earrings: "16q2qkfEmeyMa45edfuRGwhJskQEbiwFS",
   gold_necklaces: "1yiCBSMk4HpxxZcPf2AQeQeAKMcNNQNxt",
@@ -23,48 +26,58 @@ const driveFolders = {
   diamond_necklaces: "1ffu4kbZMpWhw4bOLnB07z-HM8E5Lz7qz",
 };
 
-// =============== Fetch HQ Images (NO COMPRESSION) ==================
+// Fetch image links from a Drive folder (HQ version)
 async function fetchDriveImages(folderId) {
   const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${API_KEY}&fields=files(id,name,mimeType)`;
   const res = await fetch(url);
   const data = await res.json();
+
   if (!data.files) return [];
+
   return data.files
     .filter(f => f.mimeType.includes("image/"))
     .map(f => {
-      const link = `https://drive.google.com/uc?export=view&id=${f.id}`; // full-resolution
+      const link = `https://drive.google.com/uc?export=view&id=${f.id}`;
+      console.log("Loaded jewelry image:", link);
       return { id: f.id, name: f.name, src: link };
     });
 }
 
-// =============== Image Loader ==================
+// Utility function to load images
 async function loadImage(src) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    img.onerror = () => {
+      console.error(`Failed to load image: ${src}`);
+      resolve(null);
+    };
     img.src = src;
   });
 }
 
-// =============== Change Jewelry ==================
+// Change jewelry image
 async function changeJewelry(type, src) {
   const img = await loadImage(src);
   if (!img) return;
+
   earringImg = necklaceImg = null;
+
   if (type.includes('earrings')) earringImg = img;
   else if (type.includes('necklaces')) necklaceImg = img;
 }
 
-// =============== UI Handlers ==================
+// Handle category selection
 function toggleCategory(category) {
   jewelryOptions.style.display = 'none';
   subcategoryButtons.style.display = 'none';
   currentType = category;
+
   subcategoryButtons.style.display = 'flex';
   startCamera('user');
 }
 
+// Handle subcategory (Gold/Diamond)
 function selectJewelryType(mainType, subType) {
   currentType = `${subType}_${mainType}`;
   subcategoryButtons.style.display = 'none';
@@ -72,12 +85,18 @@ function selectJewelryType(mainType, subType) {
   insertJewelryOptions(currentType, 'jewelry-options');
 }
 
-// =============== Insert Jewelry Options ==================
+// Insert jewelry options (from Google Drive)
 async function insertJewelryOptions(type, containerId) {
   const container = document.getElementById(containerId);
   container.innerHTML = '';
-  if (!driveFolders[type]) return;
+
+  if (!driveFolders[type]) {
+    console.error("No Google Drive folder mapped for:", type);
+    return;
+  }
+
   const images = await fetchDriveImages(driveFolders[type]);
+
   images.forEach((file, i) => {
     const btn = document.createElement('button');
     const img = document.createElement('img');
@@ -89,16 +108,15 @@ async function insertJewelryOptions(type, containerId) {
   });
 }
 
-// =============== MediaPipe Face Mesh ==================
+// ================== MEDIAPIPE ==================
 const faceMesh = new FaceMesh({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
 });
-
 faceMesh.setOptions({
   maxNumFaces: 1,
   refineLandmarks: true,
   minDetectionConfidence: 0.6,
-  minTrackingConfidence: 0.6,
+  minTrackingConfidence: 0.6
 });
 
 faceMesh.onResults((results) => {
@@ -121,11 +139,13 @@ faceMesh.onResults((results) => {
   drawJewelry(smoothedFaceLandmarks, canvasCtx);
 });
 
-// =============== Camera ==================
+// Start camera
 async function startCamera(facingMode) {
   if (camera) camera.stop();
   camera = new Camera(videoElement, {
-    onFrame: async () => { await faceMesh.send({ image: videoElement }); },
+    onFrame: async () => {
+      await faceMesh.send({ image: videoElement });
+    },
     width: 1280,
     height: 720,
     facingMode: facingMode
@@ -140,7 +160,7 @@ videoElement.addEventListener('loadedmetadata', () => {
   canvasElement.height = videoElement.videoHeight;
 });
 
-// =============== Smooth Point ==================
+// =============== Smoothing Helper ==================
 function smoothPoint(prev, current, factor = 0.4) {
   if (!prev) return current;
   return {
@@ -149,16 +169,17 @@ function smoothPoint(prev, current, factor = 0.4) {
   };
 }
 
-// =============== Draw Jewelry ==================
+// =============== DRAW JEWELRY ==================
 function drawJewelry(faceLandmarks, ctx) {
   const earringScale = 0.078;
-  const necklaceScale = 0.25;
+  const necklaceScale = 0.252;
 
   if (faceLandmarks) {
     const leftEarLandmark = faceLandmarks[132];
     const rightEarLandmark = faceLandmarks[361];
     const neckLandmark = faceLandmarks[152];
 
+    // moved earrings slightly upward (-26 instead of -16)
     let leftEarPos = { x: leftEarLandmark.x * canvasElement.width - 6, y: leftEarLandmark.y * canvasElement.height - 26 };
     let rightEarPos = { x: rightEarLandmark.x * canvasElement.width + 6, y: rightEarLandmark.y * canvasElement.height - 26 };
     let neckPos = { x: neckLandmark.x * canvasElement.width - 8, y: neckLandmark.y * canvasElement.height + 10 };
@@ -167,17 +188,24 @@ function drawJewelry(faceLandmarks, ctx) {
     smoothedFacePoints.rightEar = smoothPoint(smoothedFacePoints.rightEar, rightEarPos);
     smoothedFacePoints.neck = smoothPoint(smoothedFacePoints.neck, neckPos);
 
-    // Draw earrings (original HQ)
+    // ----------------- Enhancement Filters -----------------
+    ctx.globalCompositeOperation = "lighten";
+    ctx.filter = "brightness(1.15) saturate(1.3)";
+
+    // Draw earrings
     if (earringImg) {
       const w = earringImg.width * earringScale, h = earringImg.height * earringScale;
       ctx.drawImage(earringImg, smoothedFacePoints.leftEar.x - w / 2, smoothedFacePoints.leftEar.y, w, h);
       ctx.drawImage(earringImg, smoothedFacePoints.rightEar.x - w / 2, smoothedFacePoints.rightEar.y, w, h);
     }
 
-    // Draw necklace (original HQ)
+    // Draw necklace
     if (necklaceImg) {
       const w = necklaceImg.width * necklaceScale, h = necklaceImg.height * necklaceScale;
       ctx.drawImage(necklaceImg, smoothedFacePoints.neck.x - w / 2, smoothedFacePoints.neck.y, w, h);
     }
+
+    ctx.filter = "none";
+    ctx.globalCompositeOperation = "source-over";
   }
 }

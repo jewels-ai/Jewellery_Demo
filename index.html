@@ -209,59 +209,45 @@
     const videoElement = document.getElementById('webcam');
     const canvasElement = document.getElementById('overlay');
     const canvasCtx = canvasElement.getContext('2d');
-    canvasCtx.imageSmoothingEnabled = false; // Keep HQ image clarity
 
     const subcategoryButtons = document.getElementById('subcategory-buttons');
     const jewelryOptions = document.getElementById('jewelry-options');
 
     let earringImg = null;
     let necklaceImg = null;
+
     let currentType = '';
     let smoothedFaceLandmarks = null;
     let camera;
     let smoothedFacePoints = {};
 
-    const API_KEY = "AIzaSyBhi05HMVGg90dPP91zG1RZtNxm-d6hnQw";
+    const API_KEY = "AIzaSyBhi05HMVGg90dPP91zG1RZtNxm-d6hnQw"; 
 
-    const driveFolders = {
-      diamond_earrings: "1N0jndAEIThUuuNAJpvuRMGsisIaXCgMZ",
-      diamond_necklaces: "1JGV8T03YdzjfW0Dyt9aMPybH8V9-gEhw",
-      gold_earrings: "1GMZpcv4A1Gy2xiaIC1XPG_IOAt9NrDpi",
-      gold_necklaces: "1QIvX-PrSVrK9gz-TEksqiKlXPGv2hsS5",
-    };
+   const driveFolders = {
+  diamond_earrings: "1N0jndAEIThUuuNAJpvuRMGsisIaXCgMZ",
+  diamond_necklaces: "1JGV8T03YdzjfW0Dyt9aMPybH8V9-gEhw",
+  gold_earrings: "1GMZpcv4A1Gy2xiaIC1XPG_IOAt9NrDpi",
+  gold_necklaces: "1QIvX-PrSVrK9gz-TEksqiKlXPGv2hsS5",
+};
 
-    // ✅ Fetch full-resolution jewelry images
     async function fetchDriveImages(folderId) {
-      const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+mimeType+contains+'image/'&key=${API_KEY}&fields=files(id,name,mimeType)`;
-      try {
-        const res = await fetch(url);
-        const data = await res.json();
-
-        if (!data.files || !data.files.length) {
-          console.warn("⚠️ No images found — check folder permissions or API key.");
-          return [];
-        }
-
-        return data.files.map(f => ({
-          id: f.id,
-          name: f.name,
-          src: `https://drive.google.com/uc?export=view&id=${f.id}` // full-quality link
-        }));
-      } catch (err) {
-        console.error("Drive fetch error:", err);
-        return [];
-      }
+      const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${API_KEY}&fields=files(id,name,mimeType)`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.files) return [];
+      return data.files
+        .filter(f => f.mimeType.includes("image/"))
+        .map(f => {
+          const link = `https://drive.google.com/thumbnail?id=${f.id}&sz=w1000`;
+          return { id: f.id, name: f.name, src: link };
+        });
     }
 
     async function loadImage(src) {
       return new Promise((resolve) => {
         const img = new Image();
-        img.crossOrigin = "anonymous"; // allow Drive image access
         img.onload = () => resolve(img);
-        img.onerror = () => {
-          console.error("❌ Failed to load image:", src);
-          resolve(null);
-        };
+        img.onerror = () => resolve(null);
         img.src = src;
       });
     }
@@ -282,31 +268,29 @@
       startCamera('user');
     }
 
-    async function selectJewelryType(mainType, subType) {
+    function selectJewelryType(mainType, subType) {
       currentType = `${subType}_${mainType}`;
       subcategoryButtons.style.display = 'none';
       jewelryOptions.style.display = 'flex';
-      const container = document.getElementById('jewelry-options');
-      container.innerHTML = '⏳ Loading...';
-      const images = await fetchDriveImages(driveFolders[currentType]);
+      insertJewelryOptions(currentType, 'jewelry-options');
+    }
+
+    async function insertJewelryOptions(type, containerId) {
+      const container = document.getElementById(containerId);
       container.innerHTML = '';
-      if (images.length === 0) {
-        container.innerHTML = "<p>No images found. Check folder sharing settings.</p>";
-        return;
-      }
-      console.log("✅ Loaded jewelry images:", images);
+      if (!driveFolders[type]) return;
+      const images = await fetchDriveImages(driveFolders[type]);
       images.forEach((file, i) => {
         const btn = document.createElement('button');
         const img = document.createElement('img');
         img.src = file.src;
-        img.alt = `${currentType.replace('_', ' ')} ${i + 1}`;
+        img.alt = `${type.replace('_', ' ')} ${i + 1}`;
         btn.appendChild(img);
-        btn.onclick = () => changeJewelry(currentType, file.src);
+        btn.onclick = () => changeJewelry(type, file.src);
         container.appendChild(btn);
       });
     }
 
-    // =================== FACE MESH ===================
     const faceMesh = new FaceMesh({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
     });
@@ -314,10 +298,11 @@
 
     faceMesh.onResults((results) => {
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      if (results.multiFaceLandmarks?.length) {
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const newLandmarks = results.multiFaceLandmarks[0];
-        if (!smoothedFaceLandmarks) smoothedFaceLandmarks = newLandmarks;
-        else {
+        if (!smoothedFaceLandmarks) {
+          smoothedFaceLandmarks = newLandmarks;
+        } else {
           const smoothingFactor = 0.2;
           smoothedFaceLandmarks = smoothedFaceLandmarks.map((prev, i) => ({
             x: prev.x * (1 - smoothingFactor) + newLandmarks[i].x * smoothingFactor,
@@ -325,10 +310,10 @@
             z: prev.z * (1 - smoothingFactor) + newLandmarks[i].z * smoothingFactor,
           }));
         }
-        drawJewelry(smoothedFaceLandmarks, canvasCtx);
       } else {
         smoothedFaceLandmarks = null;
       }
+      drawJewelry(smoothedFaceLandmarks, canvasCtx);
     });
 
     async function startCamera(facingMode) {
@@ -343,6 +328,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => startCamera('user'));
+
     videoElement.addEventListener('loadedmetadata', () => {
       canvasElement.width = videoElement.videoWidth;
       canvasElement.height = videoElement.videoHeight;
@@ -356,34 +342,64 @@
       };
     }
 
+    /* ===========================
+       DRAW JEWELRY (Dynamic earrings)
+    ============================ */
     function drawJewelry(faceLandmarks, ctx) {
-      if (!faceLandmarks) return;
-      const vw = canvasElement.width, vh = canvasElement.height;
-      const Leye = faceLandmarks[33], Reye = faceLandmarks[263];
-      const dx = (Reye.x - Leye.x) * vw, dy = (Reye.y - Leye.y) * vh;
-      const eyeDist = Math.hypot(dx, dy);
+      if (faceLandmarks) {
+        const vw = canvasElement.width;
+        const vh = canvasElement.height;
 
-      const leftEar = faceLandmarks[132], rightEar = faceLandmarks[361];
-      smoothedFacePoints.leftEar = smoothPoint(smoothedFacePoints.leftEar, { x: leftEar.x * vw, y: leftEar.y * vh });
-      smoothedFacePoints.rightEar = smoothPoint(smoothedFacePoints.rightEar, { x: rightEar.x * vw, y: rightEar.y * vh });
+        // --- Eye distance for scaling earrings ---
+        const Leye = faceLandmarks[33];
+        const Reye = faceLandmarks[263];
+        const dx = (Reye.x - Leye.x) * vw;
+        const dy = (Reye.y - Leye.y) * vh;
+        const eyeDist = Math.hypot(dx, dy);
 
-      if (earringImg) {
-        const w = eyeDist * 0.4;
-        const h = w * (earringImg.height / earringImg.width);
-        ctx.drawImage(earringImg, smoothedFacePoints.leftEar.x - w / 2, smoothedFacePoints.leftEar.y, w, h);
-        ctx.drawImage(earringImg, smoothedFacePoints.rightEar.x - w / 2, smoothedFacePoints.rightEar.y, w, h);
-      }
+        // --- Ear Landmarks ---
+        const leftEar = faceLandmarks[132];
+        const rightEar = faceLandmarks[361];
+        let leftEarPos = { x: leftEar.x * vw, y: leftEar.y * vh };
+        let rightEarPos = { x: rightEar.x * vw, y: rightEar.y * vh };
 
-      if (necklaceImg) {
-        const neck = faceLandmarks[152];
-        smoothedFacePoints.neck = smoothPoint(smoothedFacePoints.neck, { x: neck.x * vw, y: neck.y * vh + 10 });
-        const w = necklaceImg.width * 0.25;
-        const h = necklaceImg.height * 0.25;
-        ctx.drawImage(necklaceImg, smoothedFacePoints.neck.x - w / 2, smoothedFacePoints.neck.y, w, h);
+        smoothedFacePoints.leftEar = smoothPoint(smoothedFacePoints.leftEar, leftEarPos);
+        smoothedFacePoints.rightEar = smoothPoint(smoothedFacePoints.rightEar, rightEarPos);
+
+        // --- Earrings ---
+        if (earringImg) {
+          const scaleFactor = 0.4; // adjust if needed
+          const w = eyeDist * scaleFactor;
+          const h = w * (earringImg.height / earringImg.width);
+
+          ctx.drawImage(earringImg, smoothedFacePoints.leftEar.x - w / 2, smoothedFacePoints.leftEar.y, w, h);
+          ctx.drawImage(earringImg, smoothedFacePoints.rightEar.x - w / 2, smoothedFacePoints.rightEar.y, w, h);
+        }
+
+        // --- Necklace ---
+        if (necklaceImg) {
+          const neck = faceLandmarks[152];
+          let neckPos = { x: neck.x * vw, y: neck.y * vh + 10 };
+          smoothedFacePoints.neck = smoothPoint(smoothedFacePoints.neck, neckPos);
+
+          const necklaceScale = 0.25; // adjust if needed
+          const w = necklaceImg.width * necklaceScale;
+          const h = necklaceImg.height * necklaceScale;
+
+          ctx.drawImage(necklaceImg, smoothedFacePoints.neck.x - w / 2, smoothedFacePoints.neck.y, w, h);
+        }
       }
     }
 
-    document.addEventListener('contextmenu', e => e.preventDefault());
+    /* ===========================
+       DISABLE RIGHT CLICK & DEV TOOLS
+    ============================ */
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.onkeydown = function(e) {
+      if (e.keyCode === 123) return false; // F12
+      if (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67 || e.keyCode === 75)) return false;
+      if (e.ctrlKey && e.keyCode === 85) return false; // Ctrl+U
+    };
   </script>
 </body>
 </html>
