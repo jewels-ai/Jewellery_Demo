@@ -238,7 +238,7 @@
       return data.files
         .filter(f => f.mimeType.includes("image/"))
         .map(f => {
-          const link = `https://drive.google.com/thumbnail?id=${f.id}&sz=w1000`;
+          const link = `https://drive.google.com/thumbnail?id=${f.id}&sz=w5000`;
           return { id: f.id, name: f.name, src: link };
         });
     }
