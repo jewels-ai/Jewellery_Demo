@@ -203,33 +203,30 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <script>
-    /* ===========================
-       MAIN APP CODE
-    ============================ */
     const videoElement = document.getElementById('webcam');
     const canvasElement = document.getElementById('overlay');
     const canvasCtx = canvasElement.getContext('2d');
+    canvasCtx.imageSmoothingEnabled = false; // Keep HQ details
 
     const subcategoryButtons = document.getElementById('subcategory-buttons');
     const jewelryOptions = document.getElementById('jewelry-options');
 
     let earringImg = null;
     let necklaceImg = null;
-
     let currentType = '';
     let smoothedFaceLandmarks = null;
     let camera;
     let smoothedFacePoints = {};
 
     const API_KEY = "AIzaSyBhi05HMVGg90dPP91zG1RZtNxm-d6hnQw"; 
+    const driveFolders = {
+      diamond_earrings: "1N0jndAEIThUuuNAJpvuRMGsisIaXCgMZ",
+      diamond_necklaces: "1JGV8T03YdzjfW0Dyt9aMPybH8V9-gEhw",
+      gold_earrings: "1GMZpcv4A1Gy2xiaIC1XPG_IOAt9NrDpi",
+      gold_necklaces: "1QIvX-PrSVrK9gz-TEksqiKlXPGv2hsS5",
+    };
 
-   const driveFolders = {
-  diamond_earrings: "1N0jndAEIThUuuNAJpvuRMGsisIaXCgMZ",
-  diamond_necklaces: "1JGV8T03YdzjfW0Dyt9aMPybH8V9-gEhw",
-  gold_earrings: "1GMZpcv4A1Gy2xiaIC1XPG_IOAt9NrDpi",
-  gold_necklaces: "1QIvX-PrSVrK9gz-TEksqiKlXPGv2hsS5",
-};
-
+    // ✅ Fetch full-resolution jewelry images (no compression)
     async function fetchDriveImages(folderId) {
       const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${API_KEY}&fields=files(id,name,mimeType)`;
       const res = await fetch(url);
@@ -238,7 +235,7 @@
       return data.files
         .filter(f => f.mimeType.includes("image/"))
         .map(f => {
-          const link = `https://drive.google.com/thumbnail?id=${f.id}&sz=w1000`;
+          const link = `https://drive.google.com/uc?export=view&id=${f.id}`; // HQ image link
           return { id: f.id, name: f.name, src: link };
         });
     }
@@ -300,9 +297,8 @@
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const newLandmarks = results.multiFaceLandmarks[0];
-        if (!smoothedFaceLandmarks) {
-          smoothedFaceLandmarks = newLandmarks;
-        } else {
+        if (!smoothedFaceLandmarks) smoothedFaceLandmarks = newLandmarks;
+        else {
           const smoothingFactor = 0.2;
           smoothedFaceLandmarks = smoothedFaceLandmarks.map((prev, i) => ({
             x: prev.x * (1 - smoothingFactor) + newLandmarks[i].x * smoothingFactor,
@@ -310,9 +306,7 @@
             z: prev.z * (1 - smoothingFactor) + newLandmarks[i].z * smoothingFactor,
           }));
         }
-      } else {
-        smoothedFaceLandmarks = null;
-      }
+      } else smoothedFaceLandmarks = null;
       drawJewelry(smoothedFaceLandmarks, canvasCtx);
     });
 
@@ -328,7 +322,6 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => startCamera('user'));
-
     videoElement.addEventListener('loadedmetadata', () => {
       canvasElement.width = videoElement.videoWidth;
       canvasElement.height = videoElement.videoHeight;
@@ -336,69 +329,41 @@
 
     function smoothPoint(prev, current, factor = 0.4) {
       if (!prev) return current;
-      return {
-        x: prev.x * (1 - factor) + current.x * factor,
-        y: prev.y * (1 - factor) + current.y * factor
-      };
+      return { x: prev.x * (1 - factor) + current.x * factor, y: prev.y * (1 - factor) + current.y * factor };
     }
 
-    /* ===========================
-       DRAW JEWELRY (Dynamic earrings)
-    ============================ */
     function drawJewelry(faceLandmarks, ctx) {
-      if (faceLandmarks) {
-        const vw = canvasElement.width;
-        const vh = canvasElement.height;
+      if (!faceLandmarks) return;
+      const vw = canvasElement.width, vh = canvasElement.height;
+      const Leye = faceLandmarks[33], Reye = faceLandmarks[263];
+      const dx = (Reye.x - Leye.x) * vw, dy = (Reye.y - Leye.y) * vh;
+      const eyeDist = Math.hypot(dx, dy);
+      const leftEar = faceLandmarks[132], rightEar = faceLandmarks[361];
+      let leftEarPos = { x: leftEar.x * vw, y: leftEar.y * vh };
+      let rightEarPos = { x: rightEar.x * vw, y: rightEar.y * vh };
+      smoothedFacePoints.leftEar = smoothPoint(smoothedFacePoints.leftEar, leftEarPos);
+      smoothedFacePoints.rightEar = smoothPoint(smoothedFacePoints.rightEar, rightEarPos);
 
-        // --- Eye distance for scaling earrings ---
-        const Leye = faceLandmarks[33];
-        const Reye = faceLandmarks[263];
-        const dx = (Reye.x - Leye.x) * vw;
-        const dy = (Reye.y - Leye.y) * vh;
-        const eyeDist = Math.hypot(dx, dy);
+      if (earringImg) {
+        const w = eyeDist * 0.4, h = w * (earringImg.height / earringImg.width);
+        ctx.drawImage(earringImg, smoothedFacePoints.leftEar.x - w / 2, smoothedFacePoints.leftEar.y, w, h);
+        ctx.drawImage(earringImg, smoothedFacePoints.rightEar.x - w / 2, smoothedFacePoints.rightEar.y, w, h);
+      }
 
-        // --- Ear Landmarks ---
-        const leftEar = faceLandmarks[132];
-        const rightEar = faceLandmarks[361];
-        let leftEarPos = { x: leftEar.x * vw, y: leftEar.y * vh };
-        let rightEarPos = { x: rightEar.x * vw, y: rightEar.y * vh };
-
-        smoothedFacePoints.leftEar = smoothPoint(smoothedFacePoints.leftEar, leftEarPos);
-        smoothedFacePoints.rightEar = smoothPoint(smoothedFacePoints.rightEar, rightEarPos);
-
-        // --- Earrings ---
-        if (earringImg) {
-          const scaleFactor = 0.4; // adjust if needed
-          const w = eyeDist * scaleFactor;
-          const h = w * (earringImg.height / earringImg.width);
-
-          ctx.drawImage(earringImg, smoothedFacePoints.leftEar.x - w / 2, smoothedFacePoints.leftEar.y, w, h);
-          ctx.drawImage(earringImg, smoothedFacePoints.rightEar.x - w / 2, smoothedFacePoints.rightEar.y, w, h);
-        }
-
-        // --- Necklace ---
-        if (necklaceImg) {
-          const neck = faceLandmarks[152];
-          let neckPos = { x: neck.x * vw, y: neck.y * vh + 10 };
-          smoothedFacePoints.neck = smoothPoint(smoothedFacePoints.neck, neckPos);
-
-          const necklaceScale = 0.25; // adjust if needed
-          const w = necklaceImg.width * necklaceScale;
-          const h = necklaceImg.height * necklaceScale;
-
-          ctx.drawImage(necklaceImg, smoothedFacePoints.neck.x - w / 2, smoothedFacePoints.neck.y, w, h);
-        }
+      if (necklaceImg) {
+        const neck = faceLandmarks[152];
+        let neckPos = { x: neck.x * vw, y: neck.y * vh + 10 };
+        smoothedFacePoints.neck = smoothPoint(smoothedFacePoints.neck, neckPos);
+        const w = necklaceImg.width * 0.25, h = necklaceImg.height * 0.25;
+        ctx.drawImage(necklaceImg, smoothedFacePoints.neck.x - w / 2, smoothedFacePoints.neck.y, w, h);
       }
     }
 
-    /* ===========================
-       DISABLE RIGHT CLICK & DEV TOOLS
-    ============================ */
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.onkeydown = function(e) {
-      if (e.keyCode === 123) return false; // F12
+      if (e.keyCode === 123) return false;
       if (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67 || e.keyCode === 75)) return false;
-      if (e.ctrlKey && e.keyCode === 85) return false; // Ctrl+U
+      if (e.ctrlKey && e.keyCode === 85) return false;
     };
   </script>
 </body>
