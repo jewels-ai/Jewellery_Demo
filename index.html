@@ -221,9 +221,9 @@
     let camera;
     let smoothedFacePoints = {};
 
-    const API_KEY = "AIzaSyBhi05HMVGg90dPP91zG1RZtNxm-d6hnQw"; 
+   const API_KEY = "AIzaSyBhi05HMVGg90dPP91zG1RZtNxm-d6hnQw";
 
-   const driveFolders = {
+const driveFolders = {
   diamond_earrings: "1N0jndAEIThUuuNAJpvuRMGsisIaXCgMZ",
   diamond_necklaces: "1JGV8T03YdzjfW0Dyt9aMPybH8V9-gEhw",
   gold_earrings: "1GMZpcv4A1Gy2xiaIC1XPG_IOAt9NrDpi",
@@ -238,7 +238,7 @@
       return data.files
         .filter(f => f.mimeType.includes("image/"))
         .map(f => {
-          const link = `https://drive.google.com/thumbnail?id=${f.id}&sz=w5000`;
+          const link = `https://drive.google.com/thumbnail?id=${f.id}&sz=w1000`;
           return { id: f.id, name: f.name, src: link };
         });
     }
